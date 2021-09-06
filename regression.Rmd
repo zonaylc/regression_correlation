@@ -1,0 +1,189 @@
+---
+title: "homework3"
+author: "Yi-Ling Chen"
+date: "May 17, 2021"
+output: pdf_document
+---
+
+```{r echo=FALSE, results='hide'}
+library(glmnet)
+library(dplyr)
+library(ggplot2)
+library(caret)
+library(MASS)
+library(ggcorrplot)
+```
+
+## Task2.1
+```{r}
+df <- read.table("prostate_data.txt", header=T)
+sub_df <- df %>% filter(train==TRUE)
+test_df <- df %>% filter(train==FALSE)
+
+train_X = as.matrix(sub_df[1:8])
+train_y = sub_df$lpsa
+test_X = as.matrix(test_df[1:8])
+test_y = test_df$lpsa
+```
+
+```{r}
+model1 <- lm(lpsa ~ lcavol, data=sub_df)
+model2 <- lm(lpsa ~ lcp, data=sub_df)
+model3 <- lm(lpsa ~ lcavol + lcp, data=sub_df)
+MS1 <- summary(model1)$coef
+MS2 <- summary(model2)$coef
+MS3 <- summary(model3)$coef
+print("Model1:")
+MS1
+print("Model2:")
+MS2
+print("Model3:")
+MS3
+```
+
+```{r}
+ggcorrplot(cor(sub_df[1:9]), title = "Correlation Between All Variables")
+```
+Since predictors lcavol(log cancer volume) and lcp(log of capsular penetration) are highly correlated.
+The more highly correlated the independent variables are, the more difficult to determine how much variation in Y each X is
+responsible for. Therefore, the standard errors for both variables become larger. 
+
+
+
+## Task2.2
+```{r}
+# least-square with all variables
+least_square <- lm(lpsa~., data = df, subset = train)
+
+# ridge regression
+# tracing lambda estimation
+ridge_trace <- glmnet(train_X, train_y, family = "gaussian", alpah=0)
+# choosing best lambda with cross-validation
+ridge_cv <- cv.glmnet(train_X, train_y, family = "gaussian", alpah=0)
+
+plot(ridge_trace, label = TRUE,xvar = "lambda", main="Coefficient Trace of Ridge Regression")
+```
+```{r}
+coef(least_square)
+```
+When lambda is zero, we can see the coefficients at the left side for each variables are the same as least-square model.
+
+```{r}
+print(ridge_cv)
+plot(ridge_cv)
+```
+According to lambda.min and lambda.1se, we can choose lambda.min for our model, which means when lmbda is 0.01609, the cross-validation result has the lowest error. However, to the future unseen data, it's better to have a more rgularized model because we don't know the distribution of the unseen data. Therefore, choosing the result of lambda.1se for the model. 
+
+```{r}
+# RMSE
+best_ridge <- glmnet(train_X, train_y, family = "gaussian", alpah=0, lambda = ridge_cv$lambda.1se)
+sqrt(mean((predict(best_ridge, test_X)-test_y)^2))
+
+min_ridge <- glmnet(train_X, train_y, family = "gaussian", alpah=0, lambda = ridge_cv$lambda.min)
+sqrt(mean((predict(min_ridge, test_X)-test_y)^2))
+```
+The first value is the lambda from lambda.1se, which represents a more general model with less model complexity, the rmse is 0.6729088. The second one is the model with lambda.min, the rmse is 0.6993649. The result shows that the model lambda has a better performance.
+
+
+
+## Task2.3
+```{r}
+# glmnet default alpha =1
+lasso = cv.glmnet(train_X, train_y,family = "gaussian", alpah=1)
+lasso_trace = glmnet(train_X, train_y,family = "gaussian", alpah=1)
+print(lasso)
+```
+
+```{r}
+plot(lasso_trace, label = TRUE,xvar = "lambda", main="LASSO")
+```
+
+#### Comparison of the rmse performance
+```{r}
+lasso_1se = glmnet(train_X, train_y,family = "gaussian", alpah=1, lambda = lasso$lambda.1se)
+print("The rmse estimate of lasso:")
+sqrt(mean((predict(lasso_1se, test_X)-test_y)^2))
+print("The rmse estimate of ridge regression:")
+sqrt(mean((predict(best_ridge, test_X)-test_y)^2))
+```
+
+##### LASSO coefficients
+```{r}
+coef(lasso_1se)
+```
+##### Ridge coefficients
+```{r}
+coef(best_ridge)
+```
+After penalizing, both models has 5 predictors, all the predictors have the similar estimation. And LASSO has a lightly better result on rmse estimation.
+
+
+
+## Task2.4
+
+### Comparison of three models
+```{r}
+# Search for the best elasticnet(combination of alpha and lambda)
+for(i in 0:10){
+  assign(paste("fit", i, sep=""), cv.glmnet(train_X, train_y, type.measure="mse", alpha=i/10,family="gaussian"))
+}
+
+# Show the best one
+fit9
+```
+
+```{r}
+alpha = 0.9
+lambda = 0.18298 
+L1 = alpha*lambda
+L2 = ((1-alpha)/2)*lambda
+L1
+L2
+```
+
+The elasticnet with alpha=0.3, lambda.1se=0.31413 has the best estimation of MSE on training data, and we can calculate the lambda1 and lambda2 according to the loss function. So lambda1(L1)=0.164682, lambda2(L2)=0.009149.
+
+##### CV-RMSE: Ridge Regression
+```{r}
+cv_ridge <- cv.glmnet(train_X, train_y,family = "gaussian", alpah=0)
+cv_lasso <- cv.glmnet(train_X, train_y,family = "gaussian", alpah=1)
+cv_elnet <- cv.glmnet(train_X, train_y,family = "gaussian", alpah=0.9)
+
+cv_ridge
+```
+##### CV-RMSE: LASSO
+```{r}
+cv_lasso
+```
+##### CV-RMSE: Elasticnet
+```{r}
+cv_elnet
+```
+```{r}
+# ridge
+sqrt(0.6462)
+# lasso
+sqrt(0.6430)
+# elasticnet
+sqrt(0.7039)
+```
+
+According to the cv-rmse, LASSO is the best and then ridge regression, the worst one is elasticnet.
+```{r}
+for(i in 0:10){
+  assign(paste("fit", i, sep=""), cv.glmnet(train_X, train_y, type.measure="mse", alpha=i/10,family="gaussian"))
+}
+
+fit1
+fit2
+fit3
+fit4
+fit4
+fit5
+fit6
+fit7
+fit8
+fit9
+fit10
+```
+
